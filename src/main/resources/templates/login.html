@@ -150,7 +150,9 @@
      * Login
      */
     function login() {
-        // TODO: complete the login function
+        // Send the data to the proper mapping to be processed
+        $('form').attr('action', 'index');
+        $('form').submit();
     }
 
     /**
