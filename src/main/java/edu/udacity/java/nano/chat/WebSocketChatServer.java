@@ -1,11 +1,18 @@
 package edu.udacity.java.nano.chat;
 
+import com.alibaba.fastjson.JSON;
 import org.springframework.stereotype.Component;
 
 import javax.websocket.*;
+import javax.websocket.server.PathParam;
 import javax.websocket.server.ServerEndpoint;
+import java.io.IOException;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static edu.udacity.java.nano.chat.Message.MessageType.ENTER;
+import static edu.udacity.java.nano.chat.Message.MessageType.LEAVE;
 
 /**
  * WebSocket Server
@@ -13,9 +20,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * @see ServerEndpoint WebSocket Client
  * @see Session   WebSocket Session
  */
-
 @Component
-@ServerEndpoint("/chat")
+@ServerEndpoint(
+        value = "/chat/{username}",
+        encoders = MessageEncoder.class)
 public class WebSocketChatServer {
 
     /**
@@ -23,16 +31,39 @@ public class WebSocketChatServer {
      */
     private static Map<String, Session> onlineSessions = new ConcurrentHashMap<>();
 
-    private static void sendMessageToAll(String msg) {
-        //TODO: add send message method.
+    private static void sendMessageToAll(Message msg) {
+        Iterator<String> keys = onlineSessions.keySet().iterator();
+        synchronized (onlineSessions)
+        {
+            while(keys.hasNext()) {
+                try {
+                    // TODO : remove comment
+                    //System.out.println("Sending msg : " + msg);
+                    onlineSessions.get(keys.next()).getBasicRemote().sendObject(msg);
+                } catch (IOException | EncodeException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
     }
 
     /**
      * Open connection, 1) add session, 2) add user.
      */
     @OnOpen
-    public void onOpen(Session session) {
-        //TODO: add on open connection.
+    public void onOpen(Session session, @PathParam("username") String username) {
+        // Add session to all chat sessions
+        onlineSessions.put(session.getId(), session);
+
+        // Create message and send to add user to chat
+        Message message = new Message();
+        message.setUsername(username);
+        message.setMsg("has entered the chat.");
+        message.setType(ENTER);
+        message.setOnlineCount(onlineSessions.size());
+        message.setSessionId(session.getId());
+
+        sendMessageToAll(message);
     }
 
     /**
@@ -40,15 +71,35 @@ public class WebSocketChatServer {
      */
     @OnMessage
     public void onMessage(Session session, String jsonStr) {
-        //TODO: add send message.
+        // Create message from json to get username. Then update message
+        Message message = JSON.parseObject(jsonStr, Message.class);
+        message.setType(Message.MessageType.SPEAK);
+        message.setOnlineCount(onlineSessions.size());
+        message.setSessionId(session.getId());
+
+        sendMessageToAll(message);
     }
 
     /**
      * Close connection, 1) remove session, 2) update user.
      */
     @OnClose
-    public void onClose(Session session) {
-        //TODO: add close connection.
+    public void onClose(Session session, @PathParam("username") String username) throws IOException {
+        // Remove this session for all chat sessions
+        onlineSessions.remove(session.getId());
+
+        // Create message to give notice that user has left chat session
+        Message message = new Message();
+        message.setUsername(username);
+        message.setType(LEAVE);
+        message.setMsg("has left the chat.");
+        message.setOnlineCount(onlineSessions.size());
+        message.setSessionId(session.getId());
+
+        sendMessageToAll(message);
+
+        // Close this session
+        session.close();
     }
 
     /**
